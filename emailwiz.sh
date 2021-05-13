@@ -39,7 +39,8 @@ apt install postfix dovecot-imapd dovecot-sieve opendkim spamassassin spamc
 which opendkim-genkey >/dev/null 2>&1 || apt install opendkim-tools
 domain="$(cat /etc/mailname)"
 subdom=${MAIL_SUBDOM:-mail}
-maildomain="$subdom.$domain"
+#maildomain="$subdom.$domain"
+maildomain=$domain
 certdir="/etc/letsencrypt/live/$maildomain"
 
 [ ! -d "$certdir" ] && certdir="$(dirname "$(certbot certificates 2>/dev/null | grep "$maildomain\|*.$domain" -A 2 | awk '/Certificate Path/ {print $3}' | head -n1)")"
@@ -235,18 +236,21 @@ account required        pam_unix.so" >> /etc/pam.d/dovecot
 
 # Create an OpenDKIM key in the proper place with proper permissions.
 echo "Generating OpenDKIM keys..."
+# Luke uses subdomain name(aka mail) as selector
+#selector="$subdom"
+selector="selector1"
 mkdir -p /etc/postfix/dkim
-opendkim-genkey -D /etc/postfix/dkim/ -d "$domain" -s "$subdom"
+opendkim-genkey -D /etc/postfix/dkim/ -d "$domain" -s "$selector"
 chgrp opendkim /etc/postfix/dkim/*
 chmod g+r /etc/postfix/dkim/*
 
 # Generate the OpenDKIM info:
 echo "Configuring OpenDKIM..."
 grep -q "$domain" /etc/postfix/dkim/keytable 2>/dev/null ||
-echo "$subdom._domainkey.$domain $domain:$subdom:/etc/postfix/dkim/$subdom.private" >> /etc/postfix/dkim/keytable
+echo "$selector._domainkey.$domain $domain:$selector:/etc/postfix/dkim/$selector.private" >> /etc/postfix/dkim/keytable
 
 grep -q "$domain" /etc/postfix/dkim/signingtable 2>/dev/null ||
-echo "*@$domain $subdom._domainkey.$domain" >> /etc/postfix/dkim/signingtable
+echo "*@$domain $selector._domainkey.$domain" >> /etc/postfix/dkim/signingtable
 
 grep -q "127.0.0.1" /etc/postfix/dkim/trustedhosts 2>/dev/null ||
 	echo "127.0.0.1
@@ -283,8 +287,8 @@ for x in spamassassin opendkim dovecot postfix; do
 	service "$x" restart && printf " ...done\\n"
 done
 
-pval="$(tr -d "\n" </etc/postfix/dkim/$subdom.txt | sed "s/k=rsa.* \"p=/k=rsa; p=/;s/\"\s*\"//;s/\"\s*).*//" | grep -o "p=.*")"
-dkimentry="$subdom._domainkey.$domain	TXT	v=DKIM1; k=rsa; $pval"
+pval="$(tr -d "\n" </etc/postfix/dkim/$selector.txt | sed "s/k=rsa.* \"p=/k=rsa; p=/;s/\"\s*\"//;s/\"\s*).*//" | grep -o "p=.*")"
+dkimentry="$selector._domainkey.$domain	TXT	v=DKIM1; k=rsa; $pval"
 dmarcentry="_dmarc.$domain	TXT	v=DMARC1; p=reject; rua=mailto:dmarc@$domain; fo=1"
 spfentry="@	TXT	v=spf1 mx a:$maildomain -all"
 
